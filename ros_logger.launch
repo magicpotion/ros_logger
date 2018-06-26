@@ -1,0 +1,3 @@
+<launch>
+    <node name="ros_logger" pkg="ros_logger" type="db_logger.py"/>
+</launch>

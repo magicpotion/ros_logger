@@ -1,6 +1,6 @@
 from datetime import datetime as dt
 from sqlalchemy import create_engine
-from sqlalchemy import Column, Integer, String, Sequence
+from sqlalchemy import Column, Sequence
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.types import TEXT, TIMESTAMP, INT, VARCHAR
 from sqlalchemy.dialects.postgresql import JSON
@@ -23,10 +23,10 @@ session = Session()
 
 class LogDB(Base):
     __tablename__ = 'systemlog'
-    id = Column(Integer, Sequence('log_id_seq'), primary_key=True)
+    id = Column(INT, Sequence('log_id_seq'), primary_key=True)
     datetime = Column(TIMESTAMP(timezone=False))
-    source = Column(String(160), nullable=False, default='')
-    event = Column(String(160), nullable=False, default='')
+    source = Column(VARCHAR(160), nullable=False, default='')
+    event = Column(VARCHAR(160), nullable=False, default='')
     info = Column(JSON, default='')
 
     def __repr__(self):
@@ -46,10 +46,10 @@ class LogDB(Base):
 
 class ChatLogDB(Base):
     __tablename__ = 'chatlog'
-    id = Column(Integer, Sequence('chatlog_id_seq'), primary_key=True)
+    id = Column(INT, Sequence('chatlog_id_seq'), primary_key=True)
     datetime = Column(TIMESTAMP(timezone=False))
-    source = Column(String(160), nullable=False, default='')
-    event = Column(String(160), nullable=False, default='')
+    source = Column(VARCHAR(160), nullable=False, default='')
+    event = Column(VARCHAR(160), nullable=False, default='')
     author = Column(TEXT(convert_unicode=True), default='')
     message = Column(TEXT(convert_unicode=True), default='')
 
@@ -71,9 +71,9 @@ class ChatLogDB(Base):
 
 class SpeechInputDB(Base):
     __tablename__ = 'speech_input'
-    id = Column(Integer, Sequence('speech_input_id_seq'), primary_key=True)
+    id = Column(INT, Sequence('speech_input_id_seq'), primary_key=True)
     datetime = Column(TIMESTAMP(timezone=False))
-    source = Column(String(160), nullable=False, default='')
+    source = Column(VARCHAR(160), nullable=False, default='')
     message = Column(TEXT(convert_unicode=True), default='')
     confidence = Column(INT, default='')
     lang = Column(VARCHAR(convert_unicode=True, length=8), default='')

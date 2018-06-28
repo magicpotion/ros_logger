@@ -4,10 +4,12 @@ import json
 import logging
 import rospy
 import std_msgs.msg as msg
+from hr_msgs.msg import ChatMessage
 import webui.srv as srv
-from ros_logger.orm import LogDB, ChatLogDB
+from ros_logger.orm import ChatLogDB, LogDB, SpeechInputDB
 
 logger = logging.getLogger('hr.ros_logger')
+
 ROBOT_NAME = os.environ.get('NAME', 'default')
 DURATION = 60
 
@@ -16,13 +18,22 @@ class DbLogger(object):
     def __init__(self):
         self.log_on_start()
         self.ServiceMonitoring = rospy.ServiceProxy('/webui/monitoring_controller/get_monitoring_info', srv.Json)
-        self.subscriber = rospy.Subscriber('/webui/log/chat', msg.String, self.chat_logger)
+        rospy.Subscriber('/webui/log/chat', msg.String, self.chat_logger)
+        rospy.Subscriber('/{}/speech'.format(ROBOT_NAME), ChatMessage, self.audio_logger)
 
     def log_on_start(self):
         LogDB.insert('system_status', {'power': 'ON'})
 
     def log_monitoring(self, Timer):
         LogDB.insert('system_status', json.loads(self.ServiceMonitoring().response))
+
+    def audio_logger(self, request):
+        SpeechInputDB.insert(
+            request.source,
+            request.utterance,
+            request.confidence,
+            request.lang,
+            request.audio_path)
 
     def chat_logger(self, request, event=''):
         data = json.loads(request.data)

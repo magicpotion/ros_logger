@@ -52,18 +52,20 @@ class ChatLogDB(Base):
     event = Column(VARCHAR(160), nullable=False, default='')
     author = Column(TEXT(convert_unicode=True), default='')
     message = Column(TEXT(convert_unicode=True), default='')
+    msgtype = Column(TEXT(convert_unicode=True), default='')
 
     def __repr__(self):
         return "<Chatlog(source={}, datetime={}, author={}, message={})>".format(
             self.source, self.datetime, self.author, self.message)
 
     @staticmethod
-    def insert(source, author, message, event=''):
+    def insert(source, author, message, msgtype, event=''):
         row = ChatLogDB(
             source=source,
             event=event,
             author=author,
             message=message,
+            msgtype=msgtype,
             datetime=dt.utcnow())
         session.add(row)
         session.commit()

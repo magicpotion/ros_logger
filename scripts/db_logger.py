@@ -19,7 +19,7 @@ class DbLogger(object):
         self.log_on_start()
         self.ServiceMonitoring = rospy.ServiceProxy('/webui/monitoring_controller/get_monitoring_info', srv.Json)
         rospy.Subscriber('/webui/log/chat', msg.String, self.chat_logger)
-        rospy.Subscriber('/{}/speech'.format(ROBOT_NAME), ChatMessage, self.audio_logger)
+        rospy.Subscriber('/{}/speech'.format(ROBOT_NAME), ChatMessage, self.speech_input_logger)
 
     def log_on_start(self):
         LogDB.insert('system_status', {'power': 'ON'})
@@ -27,7 +27,7 @@ class DbLogger(object):
     def log_monitoring(self, Timer):
         LogDB.insert('system_status', json.loads(self.ServiceMonitoring().response))
 
-    def audio_logger(self, request):
+    def speech_input_logger(self, request):
         SpeechInputDB.insert(
             request.source,
             request.utterance,
@@ -37,7 +37,7 @@ class DbLogger(object):
 
     def chat_logger(self, request, event=''):
         data = json.loads(request.data)
-        ChatLogDB.insert('chat', data['author'], data['message'], event)
+        ChatLogDB.insert('chat', data['author'], data['message'], data.get('type'), event)
 
     def _log_(self, data):
         """ to be used for debugging """

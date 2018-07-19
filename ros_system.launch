@@ -1,0 +1,6 @@
+<launch>
+    <group ns="/system">
+        <node name="monitoring" pkg="ros_logger" type="monitoring.py" respawn="true"/>
+        <node name="logger" pkg="ros_logger" type="logger.py" respawn="true"/>
+    </group>
+</launch>

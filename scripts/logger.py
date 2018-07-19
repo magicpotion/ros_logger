@@ -8,7 +8,7 @@ from hr_msgs.msg import EmotionState
 from hr_msgs.msg import SetGesture
 from ros_face_recognition.msg import Faces
 
-logger = logging.getLogger('hr.ros_logger')
+logger = logging.getLogger('hr.ros_system')
 
 ROBOT_NAME = os.environ.get('NAME', 'default')
 DURATION = 60

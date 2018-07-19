@@ -9,7 +9,7 @@ import rospy
 import rosnode
 import rosparam
 # import rosservice
-import ros_logger.srv as srv
+import ros_system.srv as srv
 from hr_msgs.msg import audiodata
 from dynamixel_msgs.msg import MotorStateList
 import json
@@ -22,7 +22,7 @@ import socket
 import subprocess
 import time
 
-logger = logging.getLogger('hr.ros_logger')
+logger = logging.getLogger('hr.ros_system')
 
 
 class MonitoringController:

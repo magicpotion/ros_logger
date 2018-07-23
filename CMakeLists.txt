@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(ros_system)
+project(sys_monitor)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -148,7 +148,6 @@ catkin_package(
 ## in contrast to setup.py, you can choose the destination
 install(PROGRAMS
   scripts/monitoring.py
-  scripts/logger.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
@@ -173,7 +172,7 @@ install(PROGRAMS
 #   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 # )
 install(FILES
-  ros_system.launch
+  sys_monitor.launch
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 

@@ -1,0 +1,5 @@
+<launch>
+    <group ns="/system">
+        <node name="monitoring" pkg="sys_monitor" type="monitoring.py" respawn="true"/>
+    </group>
+</launch>

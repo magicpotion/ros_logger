@@ -9,7 +9,7 @@ import rospy
 import rosnode
 import rosparam
 # import rosservice
-import ros_system.srv as srv
+import sys_monitor.srv as srv
 from hr_msgs.msg import audiodata
 from dynamixel_msgs.msg import MotorStateList
 import json
@@ -22,7 +22,7 @@ import socket
 import subprocess
 import time
 
-logger = logging.getLogger('hr.ros_system')
+logger = logging.getLogger('hr.sys_monitor')
 
 
 class MonitoringController:
@@ -49,7 +49,7 @@ class MonitoringController:
             'pololu': {'cur_alert': {}}
         }
 
-        rospy.init_node('monitoring')
+        rospy.init_node('hr_monitoring')
         rospy.Service('~get_info', srv.Json, self.get_monitoring_info)
         rospy.Service('~get_status', srv.Json, self.get_system_status)
         rospy.Subscriber('/{}/safe/motor_states/default'.format(self.robot_name), MotorStateList, self._update_motor_states)
@@ -114,7 +114,7 @@ class MonitoringController:
         # status.append(self.get_alert('test', self.cache['blender']['fps']))
 
         if (self.run_cycle and self.run_cycle % 30) == 0:
-            logger.warn(json.dumps(status))
+            logger.info('alert_log', extra={'data': status})
 
         self._run_cycle()
         self.system_status = status

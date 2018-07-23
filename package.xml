@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package>
-  <name>ros_system</name>
+  <name>sys_monitor</name>
   <version>0.1.0</version>
-  <description>The ros_system package</description>
+  <description>System Monitoring and logging facility</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->

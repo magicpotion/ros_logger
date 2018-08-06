@@ -21,8 +21,18 @@ import re
 import socket
 import subprocess
 import time
+import warnings
+try:
+    from rospy_message_converter import message_converter
+except ImportError:
+    warnings.warn('Error importing rospy_message_converter', UserWarning)
 
 logger = logging.getLogger('hr.sys_monitor')
+
+ALERT_LOG_ENABLED = True
+ALERT_LOG_HZ = 30
+MOTOR_STATES_LOG_ENABLED = os.environ.get('DEVELOPMENT_MODE', False)
+MOTOR_STATES_LOG_HZ = 30
 
 
 class MonitoringController:
@@ -113,8 +123,15 @@ class MonitoringController:
         status.append(self.cache['pololu']['cur_alert']) if self.cache['pololu']['cur_alert'] else None
         # status.append(self.get_alert('test', self.cache['blender']['fps']))
 
-        if (self.run_cycle and self.run_cycle % 30) == 0:
-            logger.info('alert_log', extra={'data': status})
+        if (self.run_cycle and ALERT_LOG_ENABLED):
+            if self.run_cycle % ALERT_LOG_HZ == 0:
+                logger.info('alert_log', extra={'data': status})
+
+        if (self.run_cycle and MOTOR_STATES_LOG_ENABLED):
+            if self.run_cycle % MOTOR_STATES_LOG_HZ == 0:
+                states = MotorStateList(motor_states=self.rostop_motor_states)
+                states = message_converter.convert_ros_message_to_dictionary(states)
+                logger.info('motorstates_log', extra={'data': states['motor_states']})
 
         self._run_cycle()
         self.system_status = status

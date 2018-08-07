@@ -44,6 +44,7 @@ class MonitoringController:
         self.rosparam_pololu = self.get_pololu_params()
         self.rosparam_motors = rosparam.get_param('/'+self.robot_name+'/motors')
         self.motors_max_load = {}
+        self.motors_min_load = {}
         self.rostop_motor_states = []
         self.audio_lvl = []
         self.system_status = []
@@ -74,9 +75,12 @@ class MonitoringController:
                 for state in msg.motor_states:
                     try:
                         if state.load > self.motors_max_load[state.id]:
-                            self.motors_max_load[state.id] = float(state.load)
+                            self.motors_max_load[state.id] = round(float(state.load), 3)
+                        if state.load < self.motors_min_load[state.id]:
+                            self.motors_min_load[state.id] = round(float(state.load), 3)
                     except KeyError:
-                        self.motors_max_load[state.id] = float(state.load)
+                        self.motors_max_load[state.id] = round(float(state.load), 3)
+                        self.motors_min_load[state.id] = round(float(state.load), 3)
         except Exception as e:
             logger.error('_update_motor_states: {}'.format(e))
 
@@ -141,8 +145,10 @@ class MonitoringController:
                 states = message_converter.convert_ros_message_to_dictionary(states)
                 for state in states['motor_states']:
                     state['max_load'] = self.motors_max_load[state['id']]
+                    state['min_load'] = self.motors_min_load[state['id']]
                     logger.info('motorstates_log', extra={'data': state})
                 self.motors_max_load = {}
+                self.motors_min_load = {}
 
         self._run_cycle()
         self.system_status = status

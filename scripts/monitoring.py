@@ -30,9 +30,9 @@ except ImportError:
 logger = logging.getLogger('hr.sys_monitor')
 
 ALERT_LOG_ENABLED = True
-ALERT_LOG_HZ = 30
+ALERT_LOG_INTERVAL = 30
 MOTOR_STATES_LOG_ENABLED = os.environ.get('DEVELOPMENT_MODE', False)
-MOTOR_STATES_LOG_HZ = 30
+MOTOR_STATES_LOG_INTERVAL = 30
 
 
 class MonitoringController:
@@ -43,6 +43,7 @@ class MonitoringController:
         self.nodes_yaml = self._read_nodes_yaml()
         self.rosparam_pololu = self.get_pololu_params()
         self.rosparam_motors = rosparam.get_param('/'+self.robot_name+'/motors')
+        self.motors_max_load = {}
         self.rostop_motor_states = []
         self.audio_lvl = []
         self.system_status = []
@@ -69,6 +70,13 @@ class MonitoringController:
         try:
             self.rostop_motor_states = msg.motor_states
             self.cache['dynamixel']['last_update'] = time.time()
+            if MOTOR_STATES_LOG_ENABLED:
+                for state in msg.motor_states:
+                    try:
+                        if state.load > self.motors_max_load[state.id]:
+                            self.motors_max_load[state.id] = float(state.load)
+                    except KeyError:
+                        self.motors_max_load[state.id] = float(state.load)
         except Exception as e:
             logger.error('_update_motor_states: {}'.format(e))
 
@@ -124,14 +132,17 @@ class MonitoringController:
         # status.append(self.get_alert('test', self.cache['blender']['fps']))
 
         if (self.run_cycle and ALERT_LOG_ENABLED):
-            if self.run_cycle % ALERT_LOG_HZ == 0:
+            if self.run_cycle % ALERT_LOG_INTERVAL == 0:
                 logger.info('alert_log', extra={'data': status})
 
         if (self.run_cycle and MOTOR_STATES_LOG_ENABLED):
-            if self.run_cycle % MOTOR_STATES_LOG_HZ == 0:
+            if self.run_cycle % MOTOR_STATES_LOG_INTERVAL == 0:
                 states = MotorStateList(motor_states=self.rostop_motor_states)
                 states = message_converter.convert_ros_message_to_dictionary(states)
-                logger.info('motorstates_log', extra={'data': states['motor_states']})
+                for state in states['motor_states']:
+                    state['max_load'] = self.motors_max_load[state['id']]
+                    logger.info('motorstates_log', extra={'data': state})
+                self.motors_max_load = {}
 
         self._run_cycle()
         self.system_status = status

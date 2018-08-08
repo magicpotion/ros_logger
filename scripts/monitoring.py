@@ -31,7 +31,7 @@ logger = logging.getLogger('hr.sys_monitor')
 
 ALERT_LOG_ENABLED = True
 ALERT_LOG_INTERVAL = 30
-MOTOR_STATES_LOG_ENABLED = os.environ.get('DEVELOPMENT_MODE', False)
+MOTOR_STATES_LOG_ENABLED = os.environ.get('DEV_MODE', False) == False
 MOTOR_STATES_LOG_INTERVAL = 30
 
 

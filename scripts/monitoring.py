@@ -43,7 +43,7 @@ class MonitoringController:
         self.nodes_yaml = self._read_nodes_yaml()
         self.rosparam_pololu = self.get_pololu_params()
         self.rosparam_motors = rosparam.get_param('/'+self.robot_name+'/motors')
-        self.motors_max_load = {}
+        self.motors_max_load = {}  # max/min calculated within MOTOR_STATES_LOG_INTERVAL
         self.motors_min_load = {}
         self.rostop_motor_states = []
         self.audio_lvl = []
@@ -68,6 +68,7 @@ class MonitoringController:
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
 
     def _update_motor_states(self, msg):
+        # TODO: store states using message_converter
         try:
             self.rostop_motor_states = msg.motor_states
             self.cache['dynamixel']['last_update'] = time.time()
@@ -147,7 +148,7 @@ class MonitoringController:
                     state['max_load'] = self.motors_max_load[state['id']]
                     state['min_load'] = self.motors_min_load[state['id']]
                     logger.info('motorstates_log', extra={'data': state})
-                self.motors_max_load = {}
+                self.motors_max_load = {}  # reset calculations
                 self.motors_min_load = {}
 
         self._run_cycle()

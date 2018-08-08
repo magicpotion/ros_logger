@@ -266,20 +266,22 @@ class MonitoringController:
 
     def get_cams(self):
         cams = []
-        params = rosparam.list_params('/{}/perception'.format(self.robot_name))
+        perception_params = rosparam.list_params('/{}/perception'.format(self.robot_name))
+        realsense_enabled = rosparam.get_param('/{}/realsense_enabled'.format(self.robot_name))
         try:
-            for param in params:
-                if 'realsense/camera/video_device' in param:
-                    # overwritten, because device configs for realsense are usualy wrong
-                    dev_path = '/dev/v4l/by-id/usb-Intel_R__RealSense*'
-                    try:
-                        status = os.path.exists(glob.glob('/dev/v4l/by-id/usb-Intel_R__RealSense*')[0])
-                    except IndexError:
-                        status = False
-                    cams.append({
-                        'name': param.split('/')[3].capitalize(),
-                        'status': status
-                    })
+            if realsense_enabled:
+                # overwritten, because device configs for realsense are usualy wrong
+                dev_path = '/dev/v4l/by-id/usb-Intel_R__RealSense*'
+                try:
+                    status = os.path.exists(glob.glob('/dev/v4l/by-id/usb-Intel_R__RealSense*')[0])
+                except IndexError:
+                    status = False
+                cams.append({
+                    'name': 'RealSense',
+                    'status': status
+                })
+
+            for param in perception_params:
                 if 'wideangle/camera/video_device' in param:
                     dev_path = rosparam.get_param(param)
                     cams.append({

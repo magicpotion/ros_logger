@@ -43,9 +43,13 @@ class MonitoringController:
         self.nodes_yaml = self._read_nodes_yaml()
         self.rosparam_pololu = self.get_pololu_params()
         self.rosparam_motors = rosparam.get_param('/'+self.robot_name+'/motors')
+        self.dynamixel_names_by_id = {m['motor_id']: m['name'] for m in self.rosparam_motors.values()
+                                      if m['hardware'] == 'dynamixel'}
         self.motors_max_load = {}  # max/min calculated within MOTOR_STATES_LOG_INTERVAL
         self.motors_min_load = {}
         self.rostop_motor_states = []
+        # In case multiple
+        self.rostop_motor_topic_states = {}
         self.audio_lvl = []
         self.system_status = []
 
@@ -64,14 +68,23 @@ class MonitoringController:
         rospy.init_node('hr_monitoring')
         rospy.Service('~get_info', srv.Json, self.get_monitoring_info)
         rospy.Service('~get_status', srv.Json, self.get_system_status)
-        rospy.Subscriber('/{}/safe/motor_states/default'.format(self.robot_name), MotorStateList, self._update_motor_states)
+
+        rospy.Subscriber('/{}/safe/motor_states/default'.format(self.robot_name), MotorStateList,
+                         self._update_motor_states)
+        # Add arms topic
+        rospy.Subscriber('/{}/safe/motor_states/arms'.format(self.robot_name), MotorStateList,
+                         lambda msg: self._update_motor_states(msg, 'arms'))
+
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
 
-    def _update_motor_states(self, msg):
+    def _update_motor_states(self, msg, topic='default'):
         # TODO: store states using message_converter
         try:
-            self.rostop_motor_states = msg.motor_states
-            self.cache['dynamixel']['last_update'] = time.time()
+            self.rostop_motor_topic_states[topic] = msg.motor_states
+            # Combine states for all topics
+            t = time.time()
+            self.rostop_motor_states = [state for topic in self.rostop_motor_topic_states.values() for state in topic
+                                            if state['timestamp'] > t-1]
             if MOTOR_STATES_LOG_ENABLED:
                 for state in msg.motor_states:
                     try:
@@ -145,6 +158,7 @@ class MonitoringController:
                 states = MotorStateList(motor_states=self.rostop_motor_states)
                 states = message_converter.convert_ros_message_to_dictionary(states)
                 for state in states['motor_states']:
+                    state['name'] = self.dynamixel_names_by_id.get(state['id'], 'n/a')
                     state['max_load'] = self.motors_max_load[state['id']]
                     state['min_load'] = self.motors_min_load[state['id']]
                     logger.info('motorstates_log', extra={'data': state})

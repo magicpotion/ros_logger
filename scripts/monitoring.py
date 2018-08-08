@@ -85,6 +85,8 @@ class MonitoringController:
             t = time.time()
             self.rostop_motor_states = [state for topic in self.rostop_motor_topic_states.values() for state in topic
                                             if state.timestamp > t-1]
+
+            self.cache['dynamixel']['last_update'] = t
             if MOTOR_STATES_LOG_ENABLED:
                 for state in msg.motor_states:
                     try:

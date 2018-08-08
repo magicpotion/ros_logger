@@ -84,7 +84,7 @@ class MonitoringController:
             # Combine states for all topics
             t = time.time()
             self.rostop_motor_states = [state for topic in self.rostop_motor_topic_states.values() for state in topic
-                                            if state['timestamp'] > t-1]
+                                            if state.timestamp > t-1]
             if MOTOR_STATES_LOG_ENABLED:
                 for state in msg.motor_states:
                     try:

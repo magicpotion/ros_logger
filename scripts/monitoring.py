@@ -458,7 +458,7 @@ class MonitoringController:
 
     def alerts_check_dxl_temperature(self, dxls=[]):
         dxl_active = [dxl for dxl in dxls if 'temperature' in dxl]
-        dxl_temp_high = [dxl for dxl in dxl_active if dxl['temperature'] > 75]
+        dxl_temp_high = [dxl for dxl in dxl_active if int(dxl['temperature']) > 75]
 
         if len(dxl_temp_high):
             return self.get_alert('dxltemperature', ', '.join(

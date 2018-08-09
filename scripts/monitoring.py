@@ -59,6 +59,7 @@ class MonitoringController:
             'camera': {'cur_alert': {}, 'disconnected': [], 'cams': []},
             'dynamixel': {'cur_alert': {}, 'failed': [], 'last_update': 0},
             'dxl_voltage': {'cur_alert': {}},
+            'dxl_temperature': {'cur_alert': {}},
             'hd': {'cur_alert': {}},
             'internet': {'cur_alert': {}},
             'node': {'cur_alert': {}, 'disconnected': [], 'nodes': []},
@@ -126,13 +127,15 @@ class MonitoringController:
         """ WebUI System Status """
         status = []
         if (self.run_cycle and self.run_cycle % 5) == 0:  # set cur_alert if using run_cycles
+            dxls = self.get_dynamixels()
             self.cache['node']['cur_alert'] = self.alert_check_nodes()
-            self.cache['dynamixel']['cur_alert'] = self.alerts_check_dynamixel()
+            self.cache['dynamixel']['cur_alert'] = self.alerts_check_dynamixel(dxls)
+            self.cache['dxl_voltage']['cur_alert'] = self.alerts_check_dxl_voltage(dxls)
+            self.cache['dxl_temperature']['cur_alert'] = self.alerts_check_dxl_temperature(dxls)
             self.cache['pololu']['cur_alert'] = self.alert_check_pololu()
             self.cache['internet']['cur_alert'] = self.alerts_check_internet()
             self.cache['cpu_heat']['cur_alert'] = self.alerts_check_cpu()
             self.cache['camera']['cur_alert'] = self.alert_check_cams()
-            self.cache['dxl_voltage']['cur_alert'] = self.alerts_check_dxl_voltage()
             self.get_blender_fps()
             if len(self.cache['blender']['fps']) == 5 and all(int(i) < 30 for i in self.cache['blender']['fps']):
                 self.cache['node']['cur_alert'] = self.get_alert('blender')
@@ -142,6 +145,7 @@ class MonitoringController:
 
         status.append(self.cache['dynamixel']['cur_alert']) if self.cache['dynamixel']['cur_alert'] else None
         status.append(self.cache['dxl_voltage']['cur_alert']) if self.cache['dxl_voltage']['cur_alert'] else None
+        status.append(self.cache['dxl_temperature']['cur_alert']) if self.cache['dxl_temperature']['cur_alert'] else None
         status.append(self.cache['hd']['cur_alert']) if self.cache['hd']['cur_alert'] else None
         status.append(self.cache['node']['cur_alert']) if self.cache['node']['cur_alert'] else None
         status.append(self.cache['blender']['cur_alert']) if self.cache['blender']['cur_alert'] else None
@@ -418,41 +422,47 @@ class MonitoringController:
                 res.append(d)
         return res
 
-    def alerts_check_dynamixel(self):
+    def get_dynamixels(self):
+        dynamixels = []
+        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
+            dynamixels = self.get_dynamixel_status()
+        return dynamixels
+
+    def alerts_check_dynamixel(self, dxls=[]):
         """
         alert level: usb2dynamixel > alldynamixels > single dynamixels
         - for Single dxls failing, status is cached and alerts triggered when failed for more than a second
         """
-        dynamixels = []
-        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
-            dynamixels = self.get_dynamixel_status()
-
         if not self.get_dynamixel_manager_status():
             return self.get_alert('usb2dynamixel')
 
-        dxl_failed = [dxl for dxl in dynamixels if dxl['status'] == 0]
+        dxl_failed = [dxl for dxl in dxls if dxl['status'] == 0]
         dxl_failed_permanent = [dxl for dxl in dxl_failed if dxl['name'] in self.cache['dynamixel']['failed']]
 
         # update cache
         self.cache['dynamixel']['failed'] = [x['name'] for x in dxl_failed]
 
-        if len(dxl_failed) == len(dynamixels):
+        if len(dxl_failed) == len(dxls):
             return self.get_alert('alldynamixels')
 
         if len(dxl_failed_permanent):
             return self.get_alert('dynamixel', len(dxl_failed_permanent), ', '.join(str(x['name']) for x in dxl_failed_permanent))
 
-    def alerts_check_dxl_voltage(self):
-        dynamixels = []
-        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
-            dynamixels = self.get_dynamixel_status()
-
-        dxl_active = [dxl for dxl in dynamixels if 'voltage' in dxl]
+    def alerts_check_dxl_voltage(self, dxls=[]):
+        dxl_active = [dxl for dxl in dxls if 'voltage' in dxl]
         dxl_voltage_low = [dxl for dxl in dxl_active if float(dxl['voltage']) < 11.5]
 
         if len(dxl_voltage_low):
             return self.get_alert('dxlvoltage', ', '.join(
                 '{}({})'.format(str(x['name']), str(x['voltage'])) for x in dxl_voltage_low))
+
+    def alerts_check_dxl_temperature(self, dxls=[]):
+        dxl_active = [dxl for dxl in dxls if 'temperature' in dxl]
+        dxl_temp_high = [dxl for dxl in dxl_active if int(dxl['temperature']) > 75]
+
+        if len(dxl_temp_high):
+            return self.get_alert('dxltemperature', ', '.join(
+                '{}({})'.format(str(x['name']), str(x['temperature'])) for x in dxl_temp_high))
 
     def get_alert(self, error, arg1='', arg2=''):
         """ Predefined alert messages """
@@ -472,6 +482,9 @@ class MonitoringController:
             'dxlvoltage': {
                 'status': 'critical',
                 'info': 'Dynamixels voltage too low: {}'.format(arg1)},
+            'dxltemperature': {
+                'status': 'critical',
+                'info': 'Dynamixels temperature very hot: {}'.format(arg1)},
             'pololu': {
                 'status': 'critical',
                 'info': 'Pololu boards disconnected: {}'.format(arg1)},

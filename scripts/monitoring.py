@@ -271,7 +271,7 @@ class MonitoringController:
     def get_cams(self):
         cams = []
         perception_params = rosparam.list_params('/{}/perception'.format(self.robot_name))
-        realsense_enabled = rosparam.get_param('/{}/realsense_enabled'.format(self.robot_name))
+        realsense_enabled = rospy.get_param('/{}/realsense_enabled'.format(self.robot_name), False)
         try:
             if realsense_enabled:
                 # overwritten, because device configs for realsense are usualy wrong

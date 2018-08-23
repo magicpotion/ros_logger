@@ -69,16 +69,14 @@ class MonitoringController:
         rospy.init_node('hr_monitoring')
         rospy.Service('~get_info', srv.Json, self.get_monitoring_info)
         rospy.Service('~get_status', srv.Json, self.get_system_status)
-
-        rospy.Subscriber('/{}/safe/motor_states/default'.format(self.robot_name), MotorStateList,
-                         self._update_motor_states)
-        # Add arms topic
-        rospy.Subscriber('/{}/safe/motor_states/arms'.format(self.robot_name), MotorStateList,
-                         lambda msg: self._update_motor_states(msg, 'arms'))
+        serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
+        for port in serial_ports:
+            rospy.Subscriber('/{}/safe/motor_states/{}'.format(self.robot_name, port), MotorStateList,
+                            lambda msg: self._update_motor_states(msg, port))
 
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
 
-    def _update_motor_states(self, msg, topic='default'):
+    def _update_motor_states(self, msg, topic):
         # TODO: store states using message_converter
         try:
             self.rostop_motor_topic_states[topic] = msg.motor_states
@@ -400,12 +398,11 @@ class MonitoringController:
         except (rosnode.ROSNodeException, IndexError) as e:
             logger.error('alert_check_pololu: {}'.format(str(e)))
 
-    def get_dynamixel_manager_status(self):
+    def get_dynamixel_manager_status(self, port):
         try:
-            dev_name = rosparam.get_param('/{}/safe/dynamixel_manager/serial_ports/default/port_name'.format(self.robot_name))
+            dev_name = rosparam.get_param('/{}/safe/dynamixel_manager/serial_ports/{}/port_name'.format(self.robot_name, port))
             return os.path.exists(dev_name)
         except Exception as e:
-            # logger.error('get_dynamixel_manager_status: {}'.format(e))
             return False
 
     def get_dynamixel_status(self):
@@ -433,8 +430,10 @@ class MonitoringController:
         alert level: usb2dynamixel > alldynamixels > single dynamixels
         - for Single dxls failing, status is cached and alerts triggered when failed for more than a second
         """
-        if not self.get_dynamixel_manager_status():
-            return self.get_alert('usb2dynamixel')
+        serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
+        for port in serial_ports:
+            if not self.get_dynamixel_manager_status(port):
+                return self.get_alert('usb2dynamixel', port)
 
         dxl_failed = [dxl for dxl in dxls if dxl['status'] == 0]
         dxl_failed_permanent = [dxl for dxl in dxl_failed if dxl['name'] in self.cache['dynamixel']['failed']]
@@ -472,7 +471,7 @@ class MonitoringController:
                 'info': 'This is a test - {}'.format(arg1)},
             'usb2dynamixel': {
                 'status': 'critical',
-                'info': 'USB2Dynamixel is disconnected'},
+                'info': 'USB2Dynamixel {} is disconnected'.format(arg1)},
             'alldynamixels': {
                 'status': 'critical',
                 'info': 'Dynamixels failed to initialize'},

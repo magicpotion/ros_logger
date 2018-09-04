@@ -22,6 +22,7 @@ import socket
 import subprocess
 import time
 import warnings
+from functools import partial
 try:
     from rospy_message_converter import message_converter
 except ImportError:
@@ -71,8 +72,8 @@ class MonitoringController:
         rospy.Service('~get_status', srv.Json, self.get_system_status)
         serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
         for port in serial_ports:
-            rospy.Subscriber('/{}/safe/motor_states/{}'.format(self.robot_name, port), MotorStateList,
-                            lambda msg: self._update_motor_states(msg, port))
+            topic = '/{}/safe/motor_states/{}'.format(self.robot_name, port)
+            rospy.Subscriber(topic, MotorStateList, partial(self._update_motor_states, topic=port))
 
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
 
@@ -80,11 +81,7 @@ class MonitoringController:
         # TODO: store states using message_converter
         try:
             self.rostop_motor_topic_states[topic] = msg.motor_states
-            # Combine states for all topics
             t = time.time()
-            self.rostop_motor_states = [state for topic in self.rostop_motor_topic_states.values() for state in topic
-                                            if state.timestamp > t-1]
-
             self.cache['dynamixel']['last_update'] = t
             if MOTOR_STATES_LOG_ENABLED:
                 for state in msg.motor_states:
@@ -407,6 +404,10 @@ class MonitoringController:
 
     def get_dynamixel_status(self):
         res = []
+        # Combine states for all topics
+        states = sum(self.rostop_motor_topic_states.values(), [])
+        self.rostop_motor_states = [state for state in states]
+
         for m in self.rosparam_motors.values():
             if m['hardware'] == 'dynamixel':
                 d = {'id': m['motor_id'], 'name': m['name'], 'status': 0}
@@ -421,7 +422,7 @@ class MonitoringController:
 
     def get_dynamixels(self):
         dynamixels = []
-        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
+        if self.cache['dynamixel']['last_update'] > time.time() - 1:
             dynamixels = self.get_dynamixel_status()
         return dynamixels
 

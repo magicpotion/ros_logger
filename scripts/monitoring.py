@@ -93,7 +93,7 @@ class MonitoringController:
                     try:
                         if state.load > self.motors_max_load[state.name]:
                             self.motors_max_load[state.name] = round(float(state.load), 3)
-                        if state.load < self.motors_min_load[state.id]:
+                        if state.load < self.motors_min_load[state.name]:
                             self.motors_min_load[state.name] = round(float(state.load), 3)
                     except KeyError:
                         self.motors_max_load[state.name] = round(float(state.load), 3)
@@ -397,12 +397,6 @@ class MonitoringController:
     def get_dynamixel_manager_status(self):
         # Currently need to update for new configs
         return True
-        try:
-            dev_name = rosparam.get_param('/{}/safe/dynamixel_manager/serial_ports/default/port_name'.format(self.robot_name))
-            return os.path.exists(dev_name)
-        except Exception as e:
-            # logger.error('get_dynamixel_manager_status: {}'.format(e))
-            return False
 
     def get_dynamixel_status(self):
         res = []
@@ -437,6 +431,8 @@ class MonitoringController:
         dxl_overload = [dxl for dxl in dynamixels if dxl['error'] == 32]
         dxl_error = [dxl for dxl in dynamixels if (dxl['error'] & (127 -36) > 0) and dxl['error'] != 255]
         dxl_failed_permanent = [dxl for dxl in dxl_failed if dxl['name'] in self.cache['dynamixel']['failed']]
+
+
         # update cache
         self.cache['dynamixel']['failed'] = [x['name'] for x in dxl_failed]
         if len(dxl_failed) + len(dxl_config) == len(dynamixels):
@@ -445,7 +441,7 @@ class MonitoringController:
         if len(dxl_failed_permanent):
             alerts.append(self.get_alert('dynamixel_unresponsive', len(dxl_failed_permanent), ', '.join(str(x['name']) for x in dxl_failed_permanent)))
         if len(dxl_init):
-            alerts.append(self.get_alert('dynamixel_config', len(dxl_init), ', '.join(str(x['name']) for x in dxl_init)))
+            alerts.append(self.get_alert('dynamixel_init', len(dxl_init), ', '.join(str(x['name']) for x in dxl_init)))
         if len(dxl_config):
             alerts.append(self.get_alert('dynamixel_config', len(dxl_config), ', '.join(str(x['name']) for x in dxl_config)))
         if len(dxl_overheat):
@@ -460,8 +456,7 @@ class MonitoringController:
         dynamixels = []
         if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
             dynamixels = self.get_dynamixel_status()
-
-        dxl_active = [dxl for dxl in dynamixels if 'voltage' in dxl]
+        dxl_active = [dxl for dxl in dynamixels if ('voltage' in dxl) and (dxl['voltage'] > 5)]
         dxl_voltage_low = [dxl for dxl in dxl_active if float(dxl['voltage']) < 11.5]
 
         if len(dxl_voltage_low):

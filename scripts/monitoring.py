@@ -141,7 +141,7 @@ class MonitoringController:
         if (self.run_cycle and self.run_cycle % 20) == 0:  # set cur_alert if using run_cycles
             self.cache['hd']['cur_alert'] = self.alerts_check_hdd()
 
-        status += self.cache['dynamixel']['cur_alert'] if self.cache['dynamixel']['cur_alert'] else None
+        status += self.cache['dynamixel']['cur_alert'] if self.cache['dynamixel']['cur_alert'] else []
 
         status.append(self.cache['dxl_voltage']['cur_alert']) if self.cache['dxl_voltage']['cur_alert'] else None
         status.append(self.cache['hd']['cur_alert']) if self.cache['hd']['cur_alert'] else None

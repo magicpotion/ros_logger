@@ -38,8 +38,16 @@ MOTOR_STATES_LOG_INTERVAL = 30
 
 class MonitoringController:
     def __init__(self):
-        self.run_cycle = 0  # for performance, skipping checks
         self.robot_name = self.get_robot_name()
+        t = time.time()
+        while time.time() - t < 30:
+            serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
+            if len(serial_ports) > 0:
+                break
+            time.sleep(1)
+
+        self.run_cycle = 0  # for performance, skipping checks
+
         self.robot_body = self.get_robot_body()
         self.nodes_yaml = self._read_nodes_yaml()
         self.rosparam_pololu = self.get_pololu_params()
@@ -70,7 +78,6 @@ class MonitoringController:
         rospy.init_node('hr_monitoring')
         rospy.Service('~get_info', srv.Json, self.get_monitoring_info)
         rospy.Service('~get_status', srv.Json, self.get_system_status)
-        serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
         for port in serial_ports:
             topic = '/{}/safe/motor_states/{}'.format(self.robot_name, port)
             rospy.Subscriber(topic, MotorStateList, partial(self._update_motor_states, topic=port))

@@ -456,7 +456,7 @@ class MonitoringController:
         dynamixels = []
         if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
             dynamixels = self.get_dynamixel_status()
-        dxl_active = [dxl for dxl in dynamixels if ('voltage' in dxl) and (dxl['voltage'] > 5)]
+        dxl_active = [dxl for dxl in dynamixels if ('voltage' in dxl) and (dxl['voltage'] > 0.5)]
         dxl_voltage_low = [dxl for dxl in dxl_active if float(dxl['voltage']) < 11.5]
 
         if len(dxl_voltage_low):

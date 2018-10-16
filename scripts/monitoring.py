@@ -22,6 +22,10 @@ import socket
 import subprocess
 import time
 import warnings
+from threading import Timer
+from nav_msgs.msg import Odometry
+
+
 try:
     from rospy_message_converter import message_converter
 except ImportError:
@@ -33,6 +37,7 @@ ALERT_LOG_ENABLED = True
 ALERT_LOG_INTERVAL = 30
 MOTOR_STATES_LOG_ENABLED = os.environ.get('DEV_MODE', False) == False
 MOTOR_STATES_LOG_INTERVAL = 30
+DISTANCE_LOG_INTERVAL = 60
 
 
 class MonitoringController:
@@ -57,6 +62,8 @@ class MonitoringController:
         self.rostop_motor_topic_states = {}
         self.audio_lvl = []
         self.system_status = []
+        self.last_position = Odometry()
+        self.current_distance = 0
 
         self.cache = {
             'blender': {'cur_alert': {}, 'fps': []},
@@ -79,6 +86,10 @@ class MonitoringController:
         rospy.Subscriber('/{}/motorStateList'.format(self.robot_name), MotorStateList,
                          self._update_motor_states)
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
+        rospy.Subscriber('/mobile_base_controller/odom', Odometry, self._odom_callback)
+        t = Timer(DISTANCE_LOG_INTERVAL, self.log_distance)
+        t.daemon = True
+        t.start()
 
     def _update_motor_states(self, msg):
         # TODO: store states using message_converter
@@ -100,6 +111,23 @@ class MonitoringController:
                         self.motors_min_load[state.name] = round(float(state.load), 3)
         except Exception as e:
             logger.error('_update_motor_states: {}'.format(e))
+
+    def _odom_callback(self, msg):
+        try:
+            p0 = self.last_position.pose.pose.position
+            p1 = msg.pose.pose.position
+            delta = (p1.x-p0.x)**2+(p1.y-p0.y)**2
+            self.current_distance += delta
+            self.last_position = msg
+        except:
+            pass
+
+    def log_distance(self):
+        data = {
+            'distance': self.current_distance
+        }
+        self.current_distance = 0
+        logger.info('distance_log', extra={'data': data})
 
     def _update_audio_lvl(self, msg):
         try:

@@ -40,14 +40,7 @@ MOTOR_STATES_LOG_ENABLED = os.environ.get('DEV_MODE', False) == False
 MOTOR_STATES_LOG_INTERVAL = 30
 DISTANCE_LOG_INTERVAL = 60
 
-def set_interval(func, sec):
-    def func_wrapper():
-        set_interval(func, sec)
-        func()
-    t = threading.Timer(sec, func_wrapper)
-    t.daemon = True
-    t.start()
-    return t
+
 
 
 class MonitoringController:
@@ -97,6 +90,17 @@ class MonitoringController:
                          self._update_motor_states)
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
         rospy.Subscriber('/mobile_base_controller/odom', Odometry, self._odom_callback)
+
+        def set_interval(func, sec):
+            def func_wrapper():
+                set_interval(func, sec)
+                func()
+
+            t = threading.Timer(sec, func_wrapper)
+            t.daemon = True
+            t.start()
+            return t
+
         set_interval(self.log_distance, DISTANCE_LOG_INTERVAL)
 
     def _update_motor_states(self, msg):

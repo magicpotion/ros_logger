@@ -11,7 +11,7 @@ import rosparam
 # import rosservice
 import sys_monitor.srv as srv
 from hr_msgs.msg import audiodata
-from dynamixel_msgs.msg import MotorStateList
+from roodle_ros.msg import MotorStateList
 import json
 import glob
 import logging
@@ -22,7 +22,10 @@ import socket
 import subprocess
 import time
 import warnings
-from functools import partial
+from threading import Timer
+import threading
+from nav_msgs.msg import Odometry
+
 try:
     from rospy_message_converter import message_converter
 except ImportError:
@@ -34,6 +37,9 @@ ALERT_LOG_ENABLED = True
 ALERT_LOG_INTERVAL = 30
 MOTOR_STATES_LOG_ENABLED = os.environ.get('DEV_MODE', False) == False
 MOTOR_STATES_LOG_INTERVAL = 30
+DISTANCE_LOG_INTERVAL = 60
+
+
 
 
 class MonitoringController:
@@ -51,9 +57,14 @@ class MonitoringController:
         self.robot_body = self.get_robot_body()
         self.nodes_yaml = self._read_nodes_yaml()
         self.rosparam_pololu = self.get_pololu_params()
-        self.rosparam_motors = rosparam.get_param('/'+self.robot_name+'/motors')
-        self.dynamixel_names_by_id = {m['motor_id']: m['name'] for m in self.rosparam_motors.values()
-                                      if m['hardware'] == 'dynamixel'}
+        # Wait for all motors to be loaded
+        for i in range(1, 20):
+            if not rospy.get_param('/{}st/motors_init'.format(self.robot_name), False):
+                time.sleep(1)
+                continue
+            break
+        self.rosparam_motors = {n:m for n,m in rosparam.get_param('/'+self.robot_name+'/motors').items() if 'hardware' in m}
+
         self.motors_max_load = {}  # max/min calculated within MOTOR_STATES_LOG_INTERVAL
         self.motors_min_load = {}
         self.rostop_motor_states = []
@@ -61,6 +72,8 @@ class MonitoringController:
         self.rostop_motor_topic_states = {}
         self.audio_lvl = []
         self.system_status = []
+        self.last_position = Odometry()
+        self.current_distance = 0
 
         self.cache = {
             'blender': {'cur_alert': {}, 'fps': []},
@@ -78,30 +91,63 @@ class MonitoringController:
         rospy.init_node('hr_monitoring')
         rospy.Service('~get_info', srv.Json, self.get_monitoring_info)
         rospy.Service('~get_status', srv.Json, self.get_system_status)
-        for port in serial_ports:
-            topic = '/{}/safe/motor_states/{}'.format(self.robot_name, port)
-            rospy.Subscriber(topic, MotorStateList, partial(self._update_motor_states, topic=port))
+        rospy.Service('~', srv.Json, self.get_system_status)
+        rospy.Service('get_motor_states', srv.MotorStates, self.get_motor_states)
 
+        rospy.Subscriber('/{}/motorStateList'.format(self.robot_name), MotorStateList,
+                         self._update_motor_states)
         rospy.Subscriber('/{}/audio_sensors'.format(self.robot_name), audiodata, self._update_audio_lvl)
+        rospy.Subscriber('/mobile_base_controller/odom', Odometry, self._odom_callback)
 
-    def _update_motor_states(self, msg, topic):
+        def set_interval(func, sec):
+            def func_wrapper():
+                set_interval(func, sec)
+                func()
+
+            t = threading.Timer(sec, func_wrapper)
+            t.daemon = True
+            t.start()
+            return t
+
+        set_interval(self.log_distance, DISTANCE_LOG_INTERVAL)
+
+    def _update_motor_states(self, msg):
         # TODO: store states using message_converter
         try:
-            self.rostop_motor_topic_states[topic] = msg.motor_states
+
+            self.rostop_motor_states = msg.motor_states
+            # Combine states for all topics
             t = time.time()
             self.cache['dynamixel']['last_update'] = t
             if MOTOR_STATES_LOG_ENABLED:
                 for state in msg.motor_states:
                     try:
-                        if state.load > self.motors_max_load[state.id]:
-                            self.motors_max_load[state.id] = round(float(state.load), 3)
-                        if state.load < self.motors_min_load[state.id]:
-                            self.motors_min_load[state.id] = round(float(state.load), 3)
+                        if state.load > self.motors_max_load[state.name]:
+                            self.motors_max_load[state.name] = round(float(state.load), 3)
+                        if state.load < self.motors_min_load[state.name]:
+                            self.motors_min_load[state.name] = round(float(state.load), 3)
                     except KeyError:
-                        self.motors_max_load[state.id] = round(float(state.load), 3)
-                        self.motors_min_load[state.id] = round(float(state.load), 3)
+                        self.motors_max_load[state.name] = round(float(state.load), 3)
+                        self.motors_min_load[state.name] = round(float(state.load), 3)
         except Exception as e:
             logger.error('_update_motor_states: {}'.format(e))
+
+    def _odom_callback(self, msg):
+        try:
+            p0 = self.last_position.pose.pose.position
+            p1 = msg.pose.pose.position
+            delta = (p1.x-p0.x)**2+(p1.y-p0.y)**2
+            self.current_distance += delta
+            self.last_position = msg
+        except:
+            pass
+
+    def log_distance(self):
+        data = {
+            'distance': self.current_distance
+        }
+        self.current_distance = 0
+        logger.info('distance_log', extra={'data': data})
 
     def _update_audio_lvl(self, msg):
         try:
@@ -145,7 +191,8 @@ class MonitoringController:
         if (self.run_cycle and self.run_cycle % 20) == 0:  # set cur_alert if using run_cycles
             self.cache['hd']['cur_alert'] = self.alerts_check_hdd()
 
-        status.append(self.cache['dynamixel']['cur_alert']) if self.cache['dynamixel']['cur_alert'] else None
+        status += self.cache['dynamixel']['cur_alert'] if self.cache['dynamixel']['cur_alert'] else []
+
         status.append(self.cache['dxl_voltage']['cur_alert']) if self.cache['dxl_voltage']['cur_alert'] else None
         status.append(self.cache['dxl_temperature']['cur_alert']) if self.cache['dxl_temperature']['cur_alert'] else None
         status.append(self.cache['hd']['cur_alert']) if self.cache['hd']['cur_alert'] else None
@@ -166,13 +213,11 @@ class MonitoringController:
                 states = MotorStateList(motor_states=self.rostop_motor_states)
                 states = message_converter.convert_ros_message_to_dictionary(states)
                 for state in states['motor_states']:
-                    state['name'] = self.dynamixel_names_by_id.get(state['id'], 'n/a')
-                    state['max_load'] = self.motors_max_load[state['id']]
-                    state['min_load'] = self.motors_min_load[state['id']]
+                    state['max_load'] = self.motors_max_load[state['name']]
+                    state['min_load'] = self.motors_min_load[state['name']]
                     logger.info('motorstates_log', extra={'data': state})
                 self.motors_max_load = {}  # reset calculations
                 self.motors_min_load = {}
-
         self._run_cycle()
         self.system_status = status
 
@@ -402,12 +447,9 @@ class MonitoringController:
         except (rosnode.ROSNodeException, IndexError) as e:
             logger.error('alert_check_pololu: {}'.format(str(e)))
 
-    def get_dynamixel_manager_status(self, port):
-        try:
-            dev_name = rosparam.get_param('/{}/safe/dynamixel_manager/serial_ports/{}/port_name'.format(self.robot_name, port))
-            return os.path.exists(dev_name)
-        except Exception as e:
-            return False
+    def get_dynamixel_manager_status(self):
+        # Currently need to update for new configs
+        return True
 
     def get_dynamixel_status(self):
         res = []
@@ -417,12 +459,14 @@ class MonitoringController:
 
         for m in self.rosparam_motors.values():
             if m['hardware'] == 'dynamixel':
-                d = {'id': m['motor_id'], 'name': m['name'], 'status': 0}
+                d = {'name': m['name'], 'status': 0, 'error': 0}
                 for state in self.rostop_motor_states:
-                    if state.id == m['motor_id']:
+                    if state.name == m['name']:
                         d.update({'status': 1,
                                   'voltage': state.voltage,
-                                  'temperature': state.temperature})
+                                  'temperature': state.temperature,
+                                  'error': state.errorCode,
+                                  })
                         break
                 res.append(d)
         return res
@@ -438,25 +482,50 @@ class MonitoringController:
         alert level: usb2dynamixel > alldynamixels > single dynamixels
         - for Single dxls failing, status is cached and alerts triggered when failed for more than a second
         """
-        serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
-        for port in serial_ports:
-            if not self.get_dynamixel_manager_status(port):
-                return self.get_alert('usb2dynamixel', port)
 
-        dxl_failed = [dxl for dxl in dxls if dxl['status'] == 0]
+        dynamixels = []
+        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
+            dynamixels = self.get_dynamixel_status()
+        else:
+            return [self.get_alert('dynamixel_status')]
+        dxl_config = [dxl for dxl in dynamixels if dxl['status'] == 0]
+        dxl_init = [dxl for dxl in dynamixels if dxl['error'] == 255]
+        dxl_failed = [dxl for dxl in dynamixels if dxl['error'] == 128]
+        dxl_overheat = [dxl for dxl in dynamixels if dxl['error'] == 4]
+        dxl_overload = [dxl for dxl in dynamixels if dxl['error'] == 32]
+        dxl_error = [dxl for dxl in dynamixels if (dxl['error'] & (127 -36) > 0) and dxl['error'] != 255]
+
         dxl_failed_permanent = [dxl for dxl in dxl_failed if dxl['name'] in self.cache['dynamixel']['failed']]
+
 
         # update cache
         self.cache['dynamixel']['failed'] = [x['name'] for x in dxl_failed]
 
-        if len(dxl_failed) == len(dxls):
-            return self.get_alert('alldynamixels')
+        if len(dxl_failed) + len(dxl_config) == len(dynamixels):
+            return [self.get_alert('alldynamixels')]
+        alerts = []
 
         if len(dxl_failed_permanent):
-            return self.get_alert('dynamixel', len(dxl_failed_permanent), ', '.join(str(x['name']) for x in dxl_failed_permanent))
+            alerts.append(self.get_alert('dynamixel_unresponsive', len(dxl_failed_permanent), ', '.join(str(x['name']) for x in dxl_failed_permanent)))
+        if len(dxl_init):
+            alerts.append(self.get_alert('dynamixel_init', len(dxl_init), ', '.join(str(x['name']) for x in dxl_init)))
+        if len(dxl_config):
+            alerts.append(self.get_alert('dynamixel_config', len(dxl_config), ', '.join(str(x['name']) for x in dxl_config)))
+        if len(dxl_overheat):
+            alerts.append(self.get_alert('dynamixel_overheated', len(dxl_overheat), ', '.join(str(x['name']) for x in dxl_overheat)))
+        if len(dxl_overload):
+            alerts.append(self.get_alert('dynamixel_overloaded', len(dxl_overload), ', '.join(str(x['name']) for x in dxl_overload)))
+        if len(dxl_error):
+            alerts.append(self.get_alert('dynamixel_error', len(dxl_error), ', '.join(str(x['name']) for x in dxl_error)))
+        return alerts
 
-    def alerts_check_dxl_voltage(self, dxls=[]):
-        dxl_active = [dxl for dxl in dxls if 'voltage' in dxl]
+
+    def alerts_check_dxl_voltage(self):
+        dynamixels = []
+        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
+            dynamixels = self.get_dynamixel_status()
+        dxl_active = [dxl for dxl in dynamixels if ('voltage' in dxl) and (dxl['voltage'] > 0.5)]
+
         dxl_voltage_low = [dxl for dxl in dxl_active if float(dxl['voltage']) < 11.5]
 
         if len(dxl_voltage_low):
@@ -482,12 +551,30 @@ class MonitoringController:
                 'info': 'USB2Dynamixel {} is disconnected'.format(arg1)},
             'alldynamixels': {
                 'status': 'critical',
-                'info': 'Dynamixels failed to initialize'},
-            'dynamixel': {
+                'info': 'No dynamixels are responding'},
+            'dynamixel_status': {
+                'status': 'critical',
+                'info': 'Dynamixel status not received'},
+            'dynamixel_init': {
                 'status': 'critical',
                 'info': '{} Dynamixels not initialized: {}'.format(arg1, arg2)},
-            'dxlvoltage': {
+            'dynamixel_config': {
                 'status': 'critical',
+                'info': '{} Dynamixels not configured: {}'.format(arg1, arg2)},
+            'dynamixel_unresponsive': {
+                'status': 'critical',
+                'info': '{} Dynamixels not responding: {}'.format(arg1, arg2)},
+            'dynamixel_overloaded': {
+                'status': 'critical',
+                'info': '{} Dynamixels overloaded: {}'.format(arg1, arg2)},
+            'dynamixel_overheated': {
+                'status': 'critical',
+                'info': '{} Dynamixels overheated: {}'.format(arg1, arg2)},
+            'dynamixel_error': {
+                'status': 'critical',
+                'info': '{} Dynamixels un specified error: {}'.format(arg1, arg2)},
+            'dxlvoltage': {
+                'status': 'warning',
                 'info': 'Dynamixels voltage too low: {}'.format(arg1)},
             'dxltemperature': {
                 'status': 'critical',
@@ -499,7 +586,7 @@ class MonitoringController:
                 'status': 'critical',
                 'info': 'There is no internet connection detected'},
             'cpu_hot': {
-                'status': 'critical',
+                'status': 'warning',
                 'info': 'CPU overheating, temperature above 90°C'},
             'hddcrit': {
                 'status': 'critical',
@@ -522,6 +609,24 @@ class MonitoringController:
         }
         return alerts[error]
 
+    def get_motor_states(self, req):
+        states = srv.MotorStatesResponse()
+        # If state is very recent only
+        if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
+            state_list = self.rostop_motor_states
+            # for state in state_list
+            for state in state_list:
+                if state.errorCode > 0:
+                    continue
+                states.motors.append(state.name)
+                states.angles.append(state.position)
+                states.loads.append(state.load)
+                states.voltages.append(state.voltage)
+                states.temperatures.append(state.temperature)
+                states.errors.append(state.errorCode)
+        return states
+
+
 
 def bytes2human(n):
     # >>> bytes2human(100001221)
@@ -535,7 +640,6 @@ def bytes2human(n):
             value = float(n) / prefix[s]
             return '%.1f%s' % (value, s)
     return "%sB" % n
-
 
 if __name__ == '__main__':
     controller = MonitoringController()

@@ -26,6 +26,7 @@ from threading import Timer
 import threading
 from nav_msgs.msg import Odometry
 
+
 try:
     from rospy_message_converter import message_converter
 except ImportError:
@@ -44,16 +45,8 @@ DISTANCE_LOG_INTERVAL = 60
 
 class MonitoringController:
     def __init__(self):
-        self.robot_name = self.get_robot_name()
-        t = time.time()
-        while time.time() - t < 30:
-            serial_ports = rospy.get_param('/%s/safe/dynamixel_manager/serial_ports' % self.robot_name, [])
-            if len(serial_ports) > 0:
-                break
-            time.sleep(1)
-
         self.run_cycle = 0  # for performance, skipping checks
-
+        self.robot_name = self.get_robot_name()
         self.robot_body = self.get_robot_body()
         self.nodes_yaml = self._read_nodes_yaml()
         self.rosparam_pololu = self.get_pololu_params()
@@ -81,7 +74,6 @@ class MonitoringController:
             'camera': {'cur_alert': {}, 'disconnected': [], 'cams': []},
             'dynamixel': {'cur_alert': {}, 'failed': [], 'last_update': 0},
             'dxl_voltage': {'cur_alert': {}},
-            'dxl_temperature': {'cur_alert': {}},
             'hd': {'cur_alert': {}},
             'internet': {'cur_alert': {}},
             'node': {'cur_alert': {}, 'disconnected': [], 'nodes': []},
@@ -175,15 +167,13 @@ class MonitoringController:
         """ WebUI System Status """
         status = []
         if (self.run_cycle and self.run_cycle % 5) == 0:  # set cur_alert if using run_cycles
-            dxls = self.get_dynamixels()
             self.cache['node']['cur_alert'] = self.alert_check_nodes()
-            self.cache['dynamixel']['cur_alert'] = self.alerts_check_dynamixel(dxls)
-            self.cache['dxl_voltage']['cur_alert'] = self.alerts_check_dxl_voltage(dxls)
-            self.cache['dxl_temperature']['cur_alert'] = self.alerts_check_dxl_temperature(dxls)
+            self.cache['dynamixel']['cur_alert'] = self.alerts_check_dynamixel()
             self.cache['pololu']['cur_alert'] = self.alert_check_pololu()
             self.cache['internet']['cur_alert'] = self.alerts_check_internet()
             self.cache['cpu_heat']['cur_alert'] = self.alerts_check_cpu()
             self.cache['camera']['cur_alert'] = self.alert_check_cams()
+            self.cache['dxl_voltage']['cur_alert'] = self.alerts_check_dxl_voltage()
             self.get_blender_fps()
             if len(self.cache['blender']['fps']) == 5 and all(int(i) < 30 for i in self.cache['blender']['fps']):
                 self.cache['node']['cur_alert'] = self.get_alert('blender')
@@ -194,7 +184,6 @@ class MonitoringController:
         status += self.cache['dynamixel']['cur_alert'] if self.cache['dynamixel']['cur_alert'] else []
 
         status.append(self.cache['dxl_voltage']['cur_alert']) if self.cache['dxl_voltage']['cur_alert'] else None
-        status.append(self.cache['dxl_temperature']['cur_alert']) if self.cache['dxl_temperature']['cur_alert'] else None
         status.append(self.cache['hd']['cur_alert']) if self.cache['hd']['cur_alert'] else None
         status.append(self.cache['node']['cur_alert']) if self.cache['node']['cur_alert'] else None
         status.append(self.cache['blender']['cur_alert']) if self.cache['blender']['cur_alert'] else None
@@ -317,22 +306,20 @@ class MonitoringController:
 
     def get_cams(self):
         cams = []
-        perception_params = rosparam.list_params('/{}/perception'.format(self.robot_name))
-        realsense_enabled = rospy.get_param('/{}/realsense_enabled'.format(self.robot_name), False)
+        params = rosparam.list_params('/{}/perception'.format(self.robot_name))
         try:
-            if realsense_enabled:
-                # overwritten, because device configs for realsense are usualy wrong
-                dev_path = '/dev/v4l/by-id/usb-Intel_R__RealSense*'
-                try:
-                    status = os.path.exists(glob.glob('/dev/v4l/by-id/usb-Intel_R__RealSense*')[0])
-                except IndexError:
-                    status = False
-                cams.append({
-                    'name': 'RealSense',
-                    'status': status
-                })
-
-            for param in perception_params:
+            for param in params:
+                if 'realsense/camera/video_device' in param:
+                    # overwritten, because device configs for realsense are usualy wrong
+                    dev_path = '/dev/v4l/by-id/usb-Intel_R__RealSense*'
+                    try:
+                        status = os.path.exists(glob.glob('/dev/v4l/by-id/usb-Intel_R__RealSense*')[0])
+                    except IndexError:
+                        status = False
+                    cams.append({
+                        'name': param.split('/')[3].capitalize(),
+                        'status': status
+                    })
                 if 'wideangle/camera/video_device' in param:
                     dev_path = rosparam.get_param(param)
                     cams.append({
@@ -453,10 +440,6 @@ class MonitoringController:
 
     def get_dynamixel_status(self):
         res = []
-        # Combine states for all topics
-        states = sum(self.rostop_motor_topic_states.values(), [])
-        self.rostop_motor_states = [state for state in states]
-
         for m in self.rosparam_motors.values():
             if m['hardware'] == 'dynamixel':
                 d = {'name': m['name'], 'status': 0, 'error': 0}
@@ -471,18 +454,11 @@ class MonitoringController:
                 res.append(d)
         return res
 
-    def get_dynamixels(self):
-        dynamixels = []
-        if self.cache['dynamixel']['last_update'] > time.time() - 1:
-            dynamixels = self.get_dynamixel_status()
-        return dynamixels
-
-    def alerts_check_dynamixel(self, dxls=[]):
+    def alerts_check_dynamixel(self):
         """
         alert level: usb2dynamixel > alldynamixels > single dynamixels
         - for Single dxls failing, status is cached and alerts triggered when failed for more than a second
         """
-
         dynamixels = []
         if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
             dynamixels = self.get_dynamixel_status()
@@ -494,17 +470,14 @@ class MonitoringController:
         dxl_overheat = [dxl for dxl in dynamixels if dxl['error'] == 4]
         dxl_overload = [dxl for dxl in dynamixels if dxl['error'] == 32]
         dxl_error = [dxl for dxl in dynamixels if (dxl['error'] & (127 -36) > 0) and dxl['error'] != 255]
-
         dxl_failed_permanent = [dxl for dxl in dxl_failed if dxl['name'] in self.cache['dynamixel']['failed']]
 
 
         # update cache
         self.cache['dynamixel']['failed'] = [x['name'] for x in dxl_failed]
-
         if len(dxl_failed) + len(dxl_config) == len(dynamixels):
             return [self.get_alert('alldynamixels')]
         alerts = []
-
         if len(dxl_failed_permanent):
             alerts.append(self.get_alert('dynamixel_unresponsive', len(dxl_failed_permanent), ', '.join(str(x['name']) for x in dxl_failed_permanent)))
         if len(dxl_init):
@@ -519,26 +492,16 @@ class MonitoringController:
             alerts.append(self.get_alert('dynamixel_error', len(dxl_error), ', '.join(str(x['name']) for x in dxl_error)))
         return alerts
 
-
     def alerts_check_dxl_voltage(self):
         dynamixels = []
         if self.cache['dynamixel']['last_update'] > time.time() - 0.5:
             dynamixels = self.get_dynamixel_status()
         dxl_active = [dxl for dxl in dynamixels if ('voltage' in dxl) and (dxl['voltage'] > 0.5)]
-
         dxl_voltage_low = [dxl for dxl in dxl_active if float(dxl['voltage']) < 11.5]
 
         if len(dxl_voltage_low):
             return self.get_alert('dxlvoltage', ', '.join(
                 '{}({})'.format(str(x['name']), str(x['voltage'])) for x in dxl_voltage_low))
-
-    def alerts_check_dxl_temperature(self, dxls=[]):
-        dxl_active = [dxl for dxl in dxls if 'temperature' in dxl]
-        dxl_temp_high = [dxl for dxl in dxl_active if int(dxl['temperature']) > 75]
-
-        if len(dxl_temp_high):
-            return self.get_alert('dxltemperature', ', '.join(
-                '{}({})'.format(str(x['name']), str(x['temperature'])) for x in dxl_temp_high))
 
     def get_alert(self, error, arg1='', arg2=''):
         """ Predefined alert messages """
@@ -548,7 +511,7 @@ class MonitoringController:
                 'info': 'This is a test - {}'.format(arg1)},
             'usb2dynamixel': {
                 'status': 'critical',
-                'info': 'USB2Dynamixel {} is disconnected'.format(arg1)},
+                'info': 'USB2Dynamixel is disconnected'},
             'alldynamixels': {
                 'status': 'critical',
                 'info': 'No dynamixels are responding'},
@@ -576,9 +539,6 @@ class MonitoringController:
             'dxlvoltage': {
                 'status': 'warning',
                 'info': 'Dynamixels voltage too low: {}'.format(arg1)},
-            'dxltemperature': {
-                'status': 'critical',
-                'info': 'Dynamixels temperature very hot: {}'.format(arg1)},
             'pololu': {
                 'status': 'critical',
                 'info': 'Pololu boards disconnected: {}'.format(arg1)},
@@ -647,3 +607,4 @@ if __name__ == '__main__':
     while not rospy.is_shutdown():
         controller.check_system_status()
         rate.sleep()
+

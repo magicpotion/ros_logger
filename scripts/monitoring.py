@@ -433,6 +433,8 @@ class MonitoringController:
 
         except (rosnode.ROSNodeException, IndexError) as e:
             logger.error('alert_check_pololu: {}'.format(str(e)))
+        except Exception as ex:
+            logger.exception(ex)
 
     def get_dynamixel_manager_status(self):
         # Currently need to update for new configs

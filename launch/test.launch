@@ -1,0 +1,24 @@
+<launch>
+    <arg name="video_enabled" default="true"/>
+    <arg name="audio_enabled" default="true"/>
+    <arg name="video_width"   default="640"/>
+    <arg name="video_height"  default="480"/>
+    <arg name="video_fps"     default="30"/>
+    <arg name="video_format"  default="xvid"/>
+    <arg name="video_topic"   default=""/>
+    <arg name="filename"      default="[timestamp]-Recording"/>
+    <arg name="video_source"  default=""/>
+    <node pkg="sys_monitor" type="av_recorder.py" name="av_recorder" output="screen" respawn="True">
+        <param name="video_enabled" value="$(arg video_enabled)" />
+        <param name="audio_enabled" value="$(arg audio_enabled)" />
+        <param name="video_width"   value="$(arg video_width)" />
+        <param name="video_height"  value="$(arg video_height)" />
+        <param name="video_fps"     value="$(arg video_fps)" />
+        <param name="video_format"  value="$(arg video_format)" />
+        <param name="video_topic"   value="$(arg video_topic)" />
+        <param name="filename"      value="$(arg filename)"/>
+
+        <!-- Multiple source can be added -->
+        <param name="video_source1"       value="$(arg video_source)" />
+    </node>
+</launch>
